@@ -1,13 +1,17 @@
 {
-  "name": "new-folder",
+  "name": "ai-news-hub",
   "version": "1.0.0",
-  "description": "",
-  "main": "script.js",
+  "description": "AI News Hub - AI-powered news aggregation platform",
+  "main": "server.js",
+  "engines": {
+    "node": "18.x"
+  },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "node server.js"
+    "start": "node server.js",
+    "dev": "node server.js"
   },
-  "keywords": [],
+  "keywords": ["news", "ai", "blog"],
   "author": "",
   "license": "ISC",
   "dependencies": {
@@ -15,8 +19,6 @@
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
-    "mongodb": "^7.0.0",
-    "mongose": "^0.0.2-security",
-    "xxx": "^0.0.1"
+    "mongodb": "^7.0.0"
   }
 }

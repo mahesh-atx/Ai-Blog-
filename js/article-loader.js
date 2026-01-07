@@ -23,7 +23,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
       // Fetch the single article from our backend
       const response = await fetch(
-        `http://localhost:3000/api/article?id=${encodeURIComponent(articleId)}`
+        `${API_BASE_URL}/api/article?id=${encodeURIComponent(articleId)}`
       );
       if (!response.ok) {
         const err = await response.json();
@@ -137,7 +137,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
       // Send the query AND the article content to our backend
       try {
-        const response = await fetch("http://localhost:3000/api/chat", {
+        const response = await fetch(`${API_BASE_URL}/api/chat`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({

@@ -348,8 +348,22 @@ app.get("/api/clear-cache", async (req, res) => {
   }
 });
 
+// --- Health Check Endpoint (for Render to verify service is running) ---
+app.get("/health", (req, res) => {
+  res.status(200).json({ status: "ok", timestamp: new Date().toISOString() });
+});
+
 // --- Start Server ---
-app.listen(PORT, () => {
-  console.log(`Server listening on http://localhost:${PORT}`);
+const server = app.listen(PORT, "0.0.0.0", () => {
+  console.log(`[${new Date().toISOString()}] Server listening on port ${PORT}`);
   connectToDb(); // Connect to DB on server start
+});
+
+// Handle graceful shutdown
+process.on("SIGTERM", () => {
+  console.log("SIGTERM signal received: closing HTTP server");
+  server.close(() => {
+    console.log("HTTP server closed");
+    process.exit(0);
+  });
 });

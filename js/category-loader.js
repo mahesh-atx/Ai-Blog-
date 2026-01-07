@@ -26,7 +26,7 @@ document.addEventListener("DOMContentLoaded", () => {
   async function loadNews() {
     try {
       const response = await fetch(
-        `http://localhost:3000/api/news?category=${category}`
+        `${API_BASE_URL}/api/news?category=${category}`
       );
       if (!response.ok) {
         const err = await response.json();

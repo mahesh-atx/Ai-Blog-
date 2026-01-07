@@ -6,6 +6,16 @@ This file contains shared helper functions
 to avoid repeating code.
 */
 
+// --- API Base URL Configuration ---
+// Automatically uses current domain in production, localhost in development
+const API_BASE_URL = (() => {
+  if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
+    return "http://localhost:3000";
+  }
+  // For production (Render, Vercel, etc.), use the current domain
+  return `${window.location.protocol}//${window.location.host}`;
+})();
+
 /**
  * Creates an HTML string for an article card.
  * @param {object} article - The article object from our API
@@ -59,3 +69,4 @@ function createSlideHTML(article, isActive = false) {
     </a>
   `;
 }
+
