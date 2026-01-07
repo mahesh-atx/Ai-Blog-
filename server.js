@@ -17,6 +17,7 @@ const express = require("express");
 const cors = require("cors");
 const axios = require("axios"); // For making HTTP requests
 const { MongoClient } = require("mongodb");
+const cheerio = require("cheerio"); // For web scraping
 
 // --- Environment Variables ---
 const PORT = process.env.PORT || 3000;
@@ -87,6 +88,45 @@ function getAuthorInitials(authorName) {
     return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
   }
   return (authorName.substring(0, 2) || "NN").toUpperCase();
+}
+
+/**
+ * Scrapes full article content from the article URL
+ * Uses cheerio to parse HTML and extract main content
+ */
+async function scrapeFullArticle(articleUrl) {
+  try {
+    const response = await axios.get(articleUrl, {
+      timeout: 5000,
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+      },
+    });
+
+    const $ = cheerio.load(response.data);
+
+    // Try to find article content - common selectors
+    let content =
+      $("article").text() ||
+      $("[role='main']").text() ||
+      $(".article-body").text() ||
+      $(".post-content").text() ||
+      $(".entry-content").text() ||
+      $("main").text() ||
+      $(".content").text();
+
+    // Clean up whitespace
+    content = content
+      .trim()
+      .replace(/\s+/g, " ")
+      .substring(0, 2000); // Limit to 2000 chars
+
+    return content || null;
+  } catch (error) {
+    console.error(`Failed to scrape ${articleUrl}:`, error.message);
+    return null; // Return null if scraping fails, we'll use description
+  }
 }
 
 /**
@@ -231,14 +271,27 @@ app.get("/api/article", async (req, res) => {
 
   try {
     // Find article by its 'url' field
-    const article = await articlesCollection.findOne({ url: articleUrl });
+    let article = await articlesCollection.findOne({ url: articleUrl });
+    
     if (article) {
+      // If content is short (likely just description), try to scrape full article
+      if (!article.fullContent || article.fullContent.length < 100) {
+        console.log(`Scraping full content for: ${articleUrl}`);
+        const scrapedContent = await scrapeFullArticle(articleUrl);
+        
+        if (scrapedContent) {
+          article.fullContent = scrapedContent;
+          // Update DB with scraped content (for caching)
+          await articlesCollection.updateOne(
+            { url: articleUrl },
+            { $set: { fullContent: scrapedContent } }
+          );
+        }
+      }
+      
       res.json(article);
     } else {
-      // [MODIFIED] If not in DB, it might be a caching issue or old link.
-      // We can't fetch it by URL from newsapi.org's 'top-headlines'
-      // The 'everything' endpoint could, but is more complex.
-      // For now, just return 404 from our DB.
+      // If not in DB, it might be a caching issue or old link.
       res.status(404).json({ error: "Article not found in database." });
     }
   } catch (error) {

@@ -39,6 +39,11 @@ document.addEventListener("DOMContentLoaded", () => {
       // Update page title
       document.title = `AI News Hub - ${currentArticle.title}`;
 
+      // Use full scraped content if available, otherwise use formatted content
+      const articleBody = currentArticle.fullContent 
+        ? `<p>${currentArticle.fullContent}</p>`
+        : currentArticle.content;
+
       // Inject article HTML
       placeholder.innerHTML = `
         <div class="article-header">
@@ -58,7 +63,7 @@ document.addEventListener("DOMContentLoaded", () => {
         <div class="article-view-image" style="background-image: url('${currentArticle.imageUrl}')"></div>
         
         <div class="article-view-body">
-          ${currentArticle.content}
+          ${articleBody}
           <p style="margin-top: 2em; font-style: italic;">
             <a href="${currentArticle.url}" target="_blank" rel="noopener noreferrer">
               Read the full original article at ${currentArticle.source}
@@ -142,8 +147,8 @@ document.addEventListener("DOMContentLoaded", () => {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             userQuery: query,
-            // Send the description, as 'content' is just the description
-            articleContent: currentArticle.description,
+            // Use full content if available, otherwise use description
+            articleContent: currentArticle.fullContent || currentArticle.description,
           }),
         });
 
