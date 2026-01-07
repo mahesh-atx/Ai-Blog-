@@ -97,7 +97,7 @@ function getAuthorInitials(authorName) {
 async function scrapeFullArticle(articleUrl) {
   try {
     const response = await axios.get(articleUrl, {
-      timeout: 5000,
+      timeout: 8000,
       headers: {
         "User-Agent":
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
@@ -106,26 +106,207 @@ async function scrapeFullArticle(articleUrl) {
 
     const $ = cheerio.load(response.data);
 
-    // Try to find article content - common selectors
-    let content =
-      $("article").text() ||
-      $("[role='main']").text() ||
-      $(".article-body").text() ||
-      $(".post-content").text() ||
-      $(".entry-content").text() ||
-      $("main").text() ||
-      $(".content").text();
+    // Try multiple selectors in order until we find content
+    const selectors = [
+      "article",
+      "[role='main']",
+      "[role='article']",
+      ".article-body",
+      ".post-content",
+      ".entry-content",
+      ".article-content",
+      ".news-content",
+      "main",
+      ".content",
+      ".body",
+    ];
 
-    // Clean up whitespace
-    content = content
-      .trim()
-      .replace(/\s+/g, " ")
-      .substring(0, 2000); // Limit to 2000 chars
+    let paragraphs = [];
 
-    return content || null;
+    for (const selector of selectors) {
+      const element = $(selector);
+      if (element.length > 0) {
+        // Extract all paragraphs
+        const paras = element
+          .find("p")
+          .map((_, el) => {
+            const text = $(el).text().trim();
+            return text.length > 20 ? text : null;
+          })
+          .get()
+          .filter((p) => p !== null);
+
+        if (paras.length > 2) {
+          paragraphs = paras;
+          break;
+        }
+      }
+    }
+
+    // If no paragraphs found, try alternative extraction
+    if (paragraphs.length === 0) {
+      paragraphs = $("p")
+        .map((_, el) => {
+          const text = $(el).text().trim();
+          return text.length > 20 ? text : null;
+        })
+        .get()
+        .filter((p) => p !== null);
+    }
+
+    // If still no content, use body text split by sentences
+    if (paragraphs.length === 0) {
+      const bodyText = $("body").text();
+      if (bodyText) {
+        paragraphs = bodyText
+          .split(/(?<=[.!?])\s+/)
+          .map((sent) => sent.trim())
+          .filter((sent) => sent.length > 50);
+      }
+    }
+
+    // Clean and format paragraphs
+    paragraphs = paragraphs
+      .map((para) => para.replace(/\s+/g, " ").substring(0, 1000))
+      .slice(0, 25) // Max 25 paragraphs
+      .map((para) => `<p>${para}</p>`)
+      .join("");
+
+    console.log(
+      `Scraped ${paragraphs.length} paragraphs from ${articleUrl.substring(
+        0,
+        50
+      )}...`
+    );
+
+    return paragraphs.length > 100 ? paragraphs : null;
   } catch (error) {
     console.error(`Failed to scrape ${articleUrl}:`, error.message);
-    return null; // Return null if scraping fails, we'll use description
+    return null;
+  }
+}
+
+/**
+ * Extracts keywords from article title and description
+ * @param {string} title - Article title
+ * @param {string} description - Article description
+ * @returns {string[]} - Array of keywords
+ */
+function extractKeywords(title, description) {
+  const text = `${title} ${description || ""}`.toLowerCase();
+  const words = text
+    .split(/[\s\-_.,!?;:()'"]+/)
+    .filter((word) => word.length > 3 && word.length < 25); // Allow shorter keywords
+
+  // Remove common stop words
+  const stopWords = new Set([
+    "about",
+    "after",
+    "also",
+    "back",
+    "been",
+    "before",
+    "being",
+    "between",
+    "both",
+    "could",
+    "during",
+    "each",
+    "first",
+    "from",
+    "have",
+    "having",
+    "here",
+    "just",
+    "more",
+    "most",
+    "other",
+    "should",
+    "since",
+    "some",
+    "such",
+    "than",
+    "that",
+    "their",
+    "there",
+    "these",
+    "this",
+    "those",
+    "through",
+    "time",
+    "under",
+    "until",
+    "very",
+    "what",
+    "when",
+    "where",
+    "which",
+    "while",
+    "with",
+    "would",
+    "your",
+    "will",
+    "has",
+    "had",
+    "can",
+    "the",
+    "and",
+    "for",
+    "are",
+    "was",
+    "but",
+    "not",
+    "you",
+    "all",
+    "our",
+  ]);
+
+  const keywords = [...new Set(words.filter((w) => !stopWords.has(w)))].slice(
+    0,
+    15
+  );
+  console.log(`[KEYWORDS] Extracted: ${keywords.join(", ")}`);
+  return keywords;
+}
+
+/**
+ * Finds similar articles based on keyword matching
+ * @param {string} articleUrl - URL of current article
+ * @param {string} title - Article title
+ * @param {string} description - Article description
+ * @param {object} collection - MongoDB articles collection
+ * @returns {Promise<array>} - Array of related articles
+ */
+async function findRelatedArticles(articleUrl, title, description, collection) {
+  try {
+    const keywords = extractKeywords(title, description);
+
+    if (keywords.length === 0) {
+      console.log("[RELATED] No keywords extracted");
+      return [];
+    }
+
+    console.log(`[RELATED] Searching for keywords: ${keywords.join(", ")}`);
+
+    // Try to find articles matching ANY of the keywords
+    const searchPattern = keywords.join("|");
+
+    const related = await collection
+      .find({
+        url: { $ne: articleUrl }, // Exclude current article
+        $or: [
+          { title: { $regex: searchPattern, $options: "i" } },
+          { description: { $regex: searchPattern, $options: "i" } },
+        ],
+      })
+      .limit(6)
+      .toArray();
+
+    console.log(`[RELATED] Found ${related.length} related articles`);
+    return related.slice(0, 3); // Return max 3 related articles
+  } catch (error) {
+    console.error("Error finding related articles:", error);
+    return [];
   }
 }
 
@@ -272,31 +453,110 @@ app.get("/api/article", async (req, res) => {
   try {
     // Find article by its 'url' field
     let article = await articlesCollection.findOne({ url: articleUrl });
-    
+
     if (article) {
-      // If content is short (likely just description), try to scrape full article
-      if (!article.fullContent || article.fullContent.length < 100) {
-        console.log(`Scraping full content for: ${articleUrl}`);
+      // Always try to scrape if we don't have good content
+      if (!article.fullContent || article.fullContent.length < 150) {
+        console.log(
+          `[SCRAPING] Attempting to get full content for: ${articleUrl}`
+        );
         const scrapedContent = await scrapeFullArticle(articleUrl);
-        
-        if (scrapedContent) {
+
+        if (scrapedContent && scrapedContent.length > 150) {
+          console.log(`[SCRAPING] Success! Got ${scrapedContent.length} chars`);
           article.fullContent = scrapedContent;
           // Update DB with scraped content (for caching)
-          await articlesCollection.updateOne(
-            { url: articleUrl },
-            { $set: { fullContent: scrapedContent } }
-          );
+          await articlesCollection
+            .updateOne(
+              { url: articleUrl },
+              { $set: { fullContent: scrapedContent, updatedAt: new Date() } }
+            )
+            .catch((err) => console.error("Error updating article:", err));
+        } else {
+          console.log(`[SCRAPING] Failed or got too little content`);
+          // If we still don't have good content, use article description as fallback
+          if (!article.fullContent) {
+            article.fullContent =
+              article.description ||
+              article.content ||
+              "Article content not available";
+          }
         }
       }
-      
+
       res.json(article);
     } else {
-      // If not in DB, it might be a caching issue or old link.
-      res.status(404).json({ error: "Article not found in database." });
+      // If not in DB, try to scrape directly
+      console.log(
+        `[SCRAPING] Article not in DB, attempting direct scrape: ${articleUrl}`
+      );
+      const scrapedContent = await scrapeFullArticle(articleUrl);
+
+      if (scrapedContent) {
+        res.json({
+          id: articleUrl,
+          url: articleUrl,
+          fullContent: scrapedContent,
+          description: scrapedContent.substring(0, 200),
+          title: "Article",
+          author: "Unknown",
+          source: "Direct Scrape",
+          imageUrl: "https://placehold.co/600x400",
+          category: "general",
+          publishedAt: new Date().toLocaleDateString(),
+          authorInitials: "UN",
+          content: scrapedContent,
+        });
+      } else {
+        res
+          .status(404)
+          .json({
+            error: "Article not found in database or unable to scrape.",
+          });
+      }
     }
   } catch (error) {
     console.error("Error fetching article from DB:", error);
-    res.status(500).json({ error: "Failed to fetch article" });
+    res
+      .status(500)
+      .json({ error: "Failed to fetch article: " + error.message });
+  }
+});
+
+/**
+ * [GET] /api/related-articles
+ * Finds similar articles based on keywords
+ */
+app.get("/api/related-articles", async (req, res) => {
+  const articleUrl = req.query.url;
+  const title = req.query.title;
+  const description = req.query.description;
+
+  console.log(`[RELATED-API] Request - URL: ${articleUrl}, Title: ${title}`);
+
+  if (!articleUrl || !title) {
+    return res.status(400).json({ error: "Article URL and title required" });
+  }
+
+  if (!db) {
+    return res.status(503).json({ error: "Database not connected" });
+  }
+
+  try {
+    const related = await findRelatedArticles(
+      articleUrl,
+      title,
+      description || "",
+      articlesCollection
+    );
+
+    console.log(`[RELATED-API] Returning ${related.length} related articles`);
+    res.json(related || []);
+  } catch (error) {
+    console.error("Error finding related articles:", error);
+    res
+      .status(500)
+      .json({ error: "Failed to find related articles: " + error.message });
   }
 });
 
@@ -398,6 +658,38 @@ app.get("/api/clear-cache", async (req, res) => {
   } catch (error) {
     console.error("Error clearing cache:", error);
     res.status(500).json({ error: "Failed to clear cache." });
+  }
+});
+
+/**
+ * [GET] /api/clear-articles
+ * Removes fullContent from all articles to force re-scraping.
+ * Requires a secret key to be passed as a query parameter.
+ */
+app.get("/api/clear-articles", async (req, res) => {
+  const { key } = req.query;
+
+  if (key !== CACHE_CLEAR_KEY) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  if (!db) {
+    return res.status(503).json({ error: "Database not connected" });
+  }
+
+  try {
+    const result = await articlesCollection.updateMany(
+      {},
+      { $unset: { fullContent: "" } }
+    );
+    console.log(`[ARTICLES CLEARED] Updated ${result.modifiedCount} articles.`);
+    res.status(200).json({
+      message: "Articles cleared for re-scraping.",
+      modifiedCount: result.modifiedCount,
+    });
+  } catch (error) {
+    console.error("Error clearing articles:", error);
+    res.status(500).json({ error: "Failed to clear articles." });
   }
 });
 

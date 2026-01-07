@@ -40,11 +40,25 @@ document.addEventListener("DOMContentLoaded", () => {
       document.title = `AI News Hub - ${currentArticle.title}`;
 
       // Use full scraped content if available, otherwise use formatted content
-      const articleBody = currentArticle.fullContent 
-        ? `<p>${currentArticle.fullContent}</p>`
+      let articleBody = currentArticle.fullContent
+        ? currentArticle.fullContent
         : currentArticle.content;
 
-      // Inject article HTML
+      // Format text if it's plain text (no HTML tags)
+      if (!articleBody.includes("<p>") && !articleBody.includes("<br>")) {
+        articleBody = formatTextAsHtml(articleBody);
+      }
+
+      // Highlight keywords from the title
+      articleBody = highlightKeywords(articleBody, currentArticle.title);
+
+      // Extract paragraphs
+      const paragraphRegex = /<p[^>]*>.*?<\/p>/gi;
+      const paragraphs = articleBody.match(paragraphRegex) || [];
+
+      console.log(`[ARTICLE] Found ${paragraphs.length} paragraphs`);
+
+      // Create article view with expandable paragraphs
       placeholder.innerHTML = `
         <div class="article-header">
           <a href="javascript:history.back()" class="back-link" id="back-to-feed-btn">
@@ -60,19 +74,36 @@ document.addEventListener("DOMContentLoaded", () => {
           </button>
         </div>
         
-        <div class="article-view-image" style="background-image: url('${currentArticle.imageUrl}')"></div>
+        <div class="article-view-image" style="background-image: url('${
+          currentArticle.imageUrl
+        }')"></div>
         
-        <div class="article-view-body">
-          ${articleBody}
+        <div class="article-view-body" id="article-paragraphs-container">
+          ${paragraphs.length > 0 ? paragraphs[0] : articleBody}
+          ${
+            paragraphs.length > 1
+              ? `<button class="view-more-btn" id="view-more-btn"><i class="fa-solid fa-chevron-down"></i> View More</button>`
+              : ""
+          }
           <p style="margin-top: 2em; font-style: italic;">
-            <a href="${currentArticle.url}" target="_blank" rel="noopener noreferrer">
+            <a href="${
+              currentArticle.url
+            }" target="_blank" rel="noopener noreferrer">
               Read the full original article at ${currentArticle.source}
             </a>
           </p>
         </div>
+
+        <div id="related-articles-container"></div>
       `;
 
-      // --- 2. Wire up Chat Modal (now that we have content) ---
+      // --- 2. Setup Expandable Paragraphs ---
+      setupParagraphExpansion(paragraphs);
+
+      // --- 3. Load Related Articles ---
+      loadRelatedArticles();
+
+      // --- 4. Wire up Chat Modal (now that we have content) ---
       initializeChat();
     } catch (error) {
       console.error(error);
@@ -80,7 +111,120 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  // --- 2. Chat Modal Logic ---
+  // --- 2. Setup Expandable Paragraphs ---
+
+  function setupParagraphExpansion(paragraphs) {
+    if (paragraphs.length <= 1) return;
+
+    let currentIndex = 1;
+    const container = document.getElementById("article-paragraphs-container");
+    const viewMoreBtn = document.getElementById("view-more-btn");
+
+    if (!viewMoreBtn) return;
+
+    viewMoreBtn.addEventListener("click", () => {
+      if (currentIndex < paragraphs.length) {
+        // Add next paragraph before the button
+        const nextParagraph = document.createElement("div");
+        nextParagraph.innerHTML = paragraphs[currentIndex];
+        viewMoreBtn.parentNode.insertBefore(nextParagraph, viewMoreBtn);
+        currentIndex++;
+
+        // Hide button if all paragraphs are shown
+        if (currentIndex >= paragraphs.length) {
+          viewMoreBtn.style.display = "none";
+        }
+      }
+    });
+  }
+
+  // --- 3. Load Related Articles ---
+
+  async function loadRelatedArticles() {
+    try {
+      const container = document.getElementById("related-articles-container");
+
+      if (!container) {
+        console.warn("Related articles container not found");
+        return;
+      }
+
+      console.log(
+        "[RELATED] Fetching related articles for:",
+        currentArticle.title
+      );
+
+      const response = await fetch(
+        `${API_BASE_URL}/api/related-articles?url=${encodeURIComponent(
+          currentArticle.id
+        )}&title=${encodeURIComponent(
+          currentArticle.title
+        )}&description=${encodeURIComponent(currentArticle.description || "")}`
+      );
+
+      if (!response.ok) {
+        console.warn(
+          "Could not load related articles, status:",
+          response.status
+        );
+        return;
+      }
+
+      const relatedArticles = await response.json();
+
+      console.log("[RELATED] Received articles:", relatedArticles.length);
+
+      if (!relatedArticles || relatedArticles.length === 0) {
+        console.log("[RELATED] No related articles found");
+        return;
+      }
+
+      let html = `
+        <div class="related-articles-section">
+          <h2>You Might Also Like</h2>
+          <div class="related-articles-grid">
+      `;
+
+      relatedArticles.forEach((article, index) => {
+        const imageUrl =
+          article.imageUrl ||
+          article.image ||
+          "https://placehold.co/300x200?text=" +
+            encodeURIComponent((article.category || "News").substring(0, 5));
+        const description = (
+          article.description ||
+          article.content ||
+          "Click to read more..."
+        ).substring(0, 120);
+
+        html += `
+          <a href="article-template.html?id=${encodeURIComponent(
+            article.url || article.id
+          )}" class="related-article-card">
+            <div class="related-article-image" style="background-image: url('${imageUrl}')"></div>
+            <div class="related-article-content">
+              <h3>${article.title || "Article " + (index + 1)}</h3>
+              <p>${description}</p>
+              <div class="related-article-meta">
+                <span class="category-tag">${article.category || "News"}</span>
+              </div>
+            </div>
+          </a>
+        `;
+      });
+
+      html += `
+          </div>
+        </div>
+      `;
+
+      container.innerHTML = html;
+    } catch (error) {
+      console.error("Error loading related articles:", error);
+    }
+  }
+
+  // --- 4. Chat Modal Logic ---
 
   function initializeChat() {
     const chatModal = document.getElementById("chat-modal");
@@ -148,7 +292,8 @@ document.addEventListener("DOMContentLoaded", () => {
           body: JSON.stringify({
             userQuery: query,
             // Use full content if available, otherwise use description
-            articleContent: currentArticle.fullContent || currentArticle.description,
+            articleContent:
+              currentArticle.fullContent || currentArticle.description,
           }),
         });
 

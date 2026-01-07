@@ -9,7 +9,10 @@ to avoid repeating code.
 // --- API Base URL Configuration ---
 // Automatically uses current domain in production, localhost in development
 const API_BASE_URL = (() => {
-  if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
+  if (
+    window.location.hostname === "localhost" ||
+    window.location.hostname === "127.0.0.1"
+  ) {
     return "http://localhost:3000";
   }
   // For production (Render, Vercel, etc.), use the current domain
@@ -70,3 +73,51 @@ function createSlideHTML(article, isActive = false) {
   `;
 }
 
+/**
+ * Highlights important keywords in article text
+ * @param {string} text - The article text
+ * @param {string} title - The article title (used to extract keywords)
+ * @returns {string} - Text with highlighted keywords
+ */
+function highlightKeywords(text, title) {
+  // Extract important words from title
+  const keywords = title
+    .split(/\s+/)
+    .filter((word) => word.length > 4)
+    .map((word) => word.toLowerCase());
+
+  let highlightedText = text;
+  keywords.forEach((keyword) => {
+    const regex = new RegExp(`\\b${keyword}\\b`, "gi");
+    highlightedText = highlightedText.replace(
+      regex,
+      `<strong>${keyword}</strong>`
+    );
+  });
+
+  return highlightedText;
+}
+
+/**
+ * Formats plain text into HTML paragraphs with proper spacing
+ * @param {string} text - Plain text content
+ * @returns {string} - HTML formatted content
+ */
+function formatTextAsHtml(text) {
+  if (!text) return "";
+
+  // If already has HTML tags, return as is
+  if (text.includes("<p>") || text.includes("<br>")) {
+    return text;
+  }
+
+  // Split by double newlines or sentences ending with periods
+  const paragraphs = text
+    .split(/\n\n+/)
+    .map((para) => para.trim())
+    .filter((para) => para.length > 20)
+    .map((para) => `<p>${para}</p>`)
+    .join("");
+
+  return paragraphs;
+}
